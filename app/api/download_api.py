@@ -47,15 +47,6 @@ def _extract_filename(file_path: str) -> str:
 
 
 def _resolve_download_path(file_path: str) -> Path | None:
-    """
-    Resolve the real file path safely.
-
-    Handles:
-    - absolute paths returned by the downloader
-    - relative paths inside DOWNLOAD_DIR
-    - basename-only fallbacks
-    - simple recursive fallback search by filename
-    """
     if not file_path:
         return None
 
@@ -65,14 +56,12 @@ def _resolve_download_path(file_path: str) -> Path | None:
     if path_obj is None:
         return None
 
-    # 1) If it's an absolute path and exists, use it directly
     try:
         if path_obj.is_absolute() and path_obj.exists():
             return path_obj.resolve()
     except Exception:
         pass
 
-    # 2) If it's relative, try under DOWNLOAD_DIR
     try:
         relative_candidate = (DOWNLOAD_DIR / path_obj).resolve()
         if relative_candidate.exists() and _is_within_download_dir(relative_candidate):
@@ -80,14 +69,12 @@ def _resolve_download_path(file_path: str) -> Path | None:
     except Exception:
         pass
 
-    # 3) Try just the basename in DOWNLOAD_DIR
     filename = _extract_filename(raw)
     if filename:
         candidate = (DOWNLOAD_DIR / filename).resolve()
         if candidate.exists():
             return candidate
 
-    # 4) Recursive fallback: search for matching filename under downloads
     if filename:
         for root, _dirs, files in os.walk(DOWNLOAD_DIR):
             if filename in files:
@@ -99,10 +86,6 @@ def _resolve_download_path(file_path: str) -> Path | None:
 
 
 def _build_download_url(file_path: str) -> str | None:
-    """
-    Build a frontend/backend-friendly download URL.
-    Uses the filename only, which the route resolves safely.
-    """
     filename = _extract_filename(file_path)
     if not filename:
         return None
@@ -122,7 +105,6 @@ def create_download():
     if not user_id or not url:
         return jsonify({"error": "missing_fields"}), 400
 
-    # Keep your current logic here
     is_premium = False
 
     try:
@@ -132,7 +114,10 @@ def create_download():
         )
     except Exception as exc:
         current_app.logger.exception("UsageService failed: %s", exc)
-        return jsonify({"error": "usage_check_failed"}), 500
+        return jsonify({
+            "error": "usage_check_failed",
+            "debug": str(exc)
+        }), 500
 
     if not allowed:
         return jsonify(
@@ -218,7 +203,6 @@ def download_file(filename):
         ), 404
 
     try:
-        # First try the exact filename under DOWNLOAD_DIR
         safe_name = Path(str(filename).replace("\\", "/")).name
         candidate = (DOWNLOAD_DIR / safe_name).resolve()
 
@@ -229,7 +213,6 @@ def download_file(filename):
                 download_name=candidate.name,
             )
 
-        # Fallback: recursive search by filename
         for root, _dirs, files in os.walk(DOWNLOAD_DIR):
             if safe_name in files:
                 found = (Path(root) / safe_name).resolve()
