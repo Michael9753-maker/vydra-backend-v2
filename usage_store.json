@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "last_reset_date": "2025-12-04"
+  },
+  "users": {
+    "demo-user@example.com": {
+      "date": "2025-12-04",
+      "success": 0,
+      "reserved": 0,
+      "ai": 0
+    },
+    "test_user": {
+      "date": "2025-12-04",
+      "success": 0,
+      "reserved": 2,
+      "ai": 0
+    }
+  }
+}
