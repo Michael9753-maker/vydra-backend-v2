@@ -1,11 +1,22 @@
+import os
 from celery import Celery
 
 
 def make_celery():
+    # ✅ Get Redis URL from environment (Render)
+    redis_url = os.getenv("REDIS_URL")
+
+    if not redis_url:
+        raise ValueError("REDIS_URL is not set in environment variables")
+
+    # Optional: ensure proper DB index
+    if not redis_url.endswith("/0"):
+        redis_url = redis_url + "/0"
+
     celery = Celery(
         "vydra",
-        broker="redis://localhost:6379/0",
-        backend="redis://localhost:6379/0",
+        broker=redis_url,
+        backend=redis_url,
         include=["app.tasks.download_tasks"],
     )
 
