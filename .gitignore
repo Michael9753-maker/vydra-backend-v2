@@ -5,9 +5,14 @@ __pycache__/
 
 # Environment
 .env
+venv/
 
 # Downloads (VERY IMPORTANT)
 downloads/
+*.mp4
+*.mp3
+*.webm
+*.mkv
 
 # Logs
 logs/
@@ -22,11 +27,3 @@ Thumbs.db
 
 # VS Code
 .vscode/
-downloads/
-*.mp4
-*.mp3
-*.webm
-*.mkv
-.env
-__pycache__/
-venv/
