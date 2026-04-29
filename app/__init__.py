@@ -13,9 +13,6 @@ log_event("SYSTEM", "VYDRA backend module imported (create_app)")
 
 
 def create_app(config_overrides: dict | None = None) -> Flask:
-    """
-    Create and configure the Flask app.
-    """
     load_dotenv()
 
     app = Flask(__name__, static_folder=None)
@@ -50,13 +47,25 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     app.logger.info("Creating VYDRA Flask app")
 
-    # ✅ ADD HEALTH ROUTE HERE
+    # ✅ Health route
     @app.route("/health", methods=["GET"])
     def health():
         return {
             "status": "ok",
             "message": "VYDRA backend is running 🚀"
         }
+
+    # ✅ DEBUG ROUTE (VERY IMPORTANT)
+    @app.route("/routes", methods=["GET"])
+    def list_routes():
+        routes = []
+        for rule in app.url_map.iter_rules():
+            routes.append({
+                "endpoint": rule.endpoint,
+                "methods": list(rule.methods),
+                "route": str(rule)
+            })
+        return {"routes": routes}
 
     # Ensure directories exist
     Path(app.config["DOWNLOAD_DIR"]).mkdir(parents=True, exist_ok=True)
@@ -76,7 +85,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     except Exception:
         app.logger.exception("Failed to register job_bp")
 
-    # Attach Celery if available
+    # Attach Celery
     try:
         from app.core.celery_app import celery as _celery
         app.celery = _celery
