@@ -15,9 +15,6 @@ log_event("SYSTEM", "VYDRA backend module imported (create_app)")
 def create_app(config_overrides: dict | None = None) -> Flask:
     """
     Create and configure the Flask app.
-
-    This version registers the current API blueprints explicitly so routes are
-    predictable and route registration failures are easier to catch.
     """
     load_dotenv()
 
@@ -25,12 +22,27 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     CORS(app, resources={r"/*": {"origins": "*"}})
 
     base_dir = os.path.abspath(os.path.dirname(__file__))
-    app.config.setdefault("DOWNLOAD_DIR", os.getenv("DOWNLOADS_DIR", os.path.join(base_dir, "..", "downloads")))
-    app.config.setdefault("POLL_PROGRESS_INTERVAL", float(os.getenv("POLL_PROGRESS_INTERVAL", 0.6)))
-    app.config.setdefault("RECENT_WINDOW_SECONDS", int(os.getenv("RECENT_WINDOW_SECONDS", 3 * 60 * 60)))
+
+    app.config.setdefault(
+        "DOWNLOAD_DIR",
+        os.getenv("DOWNLOADS_DIR", os.path.join(base_dir, "..", "downloads"))
+    )
+    app.config.setdefault(
+        "POLL_PROGRESS_INTERVAL",
+        float(os.getenv("POLL_PROGRESS_INTERVAL", 0.6))
+    )
+    app.config.setdefault(
+        "RECENT_WINDOW_SECONDS",
+        int(os.getenv("RECENT_WINDOW_SECONDS", 3 * 60 * 60))
+    )
     app.config.setdefault(
         "DOWNLOAD_HISTORY_FILE",
-        os.path.abspath(os.getenv("DOWNLOAD_HISTORY_FILE", os.path.join(base_dir, "..", "download_history.json")))
+        os.path.abspath(
+            os.getenv(
+                "DOWNLOAD_HISTORY_FILE",
+                os.path.join(base_dir, "..", "download_history.json")
+            )
+        )
     )
 
     if isinstance(config_overrides, dict):
@@ -38,11 +50,18 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     app.logger.info("Creating VYDRA Flask app")
 
-    # Ensure directories that your app relies on exist.
+    # ✅ ADD HEALTH ROUTE HERE
+    @app.route("/health", methods=["GET"])
+    def health():
+        return {
+            "status": "ok",
+            "message": "VYDRA backend is running 🚀"
+        }
+
+    # Ensure directories exist
     Path(app.config["DOWNLOAD_DIR"]).mkdir(parents=True, exist_ok=True)
 
-    # Import and register the current API blueprints explicitly.
-    # This avoids silent auto-discovery failures and makes route registration stable.
+    # Register blueprints
     try:
         from app.api.download_api import download_bp
         app.register_blueprint(download_bp, url_prefix="/api/download")
@@ -57,20 +76,17 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     except Exception:
         app.logger.exception("Failed to register job_bp")
 
-    # Attach Celery if available.
+    # Attach Celery if available
     try:
-        from app.core.celery_app import celery as _celery  # noqa: E402
+        from app.core.celery_app import celery as _celery
         app.celery = _celery
-        app.logger.info("Celery attached to app (tasks should use app.celery).")
+        app.logger.info("Celery attached to app.")
     except Exception:
-        app.logger.debug("Celery not attached (ok for dev without workers).")
+        app.logger.debug("Celery not attached.")
 
     return app
 
 
 def run_with_workers(host: str = "0.0.0.0", port: int = 8000, debug: bool = False):
-    """
-    Convenience runner for development.
-    """
     app = create_app()
     app.run(host=host, port=port, debug=debug)

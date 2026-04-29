@@ -62,7 +62,7 @@ def _ensure_api_key():
     """Ensure an API key is available. Reads environment dynamically so restarts are not required."""
     key = os.getenv("OPENAI_API_KEY") or getattr(openai, "api_key", None)
     if not key:
-        raise RuntimeError("OPENAI_API_KEY not configured. Set OPENAI_API_KEY in environment.")
+        print("⚠️ OpenAI key not found. AI features disabled.")
     # ensure openai.api_key is set for SDK calls
     openai.api_key = key
     return key
