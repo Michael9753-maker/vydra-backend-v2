@@ -33,11 +33,11 @@ class UsageService:
             pipe.expire(key, 86400)  # 24 hours
             pipe.execute()
 
-            return True, current + 1, limit
+            return True, current + 1, limit, "redis"
 
         except Exception as e:
             # 🚨 If Redis crashes during operation → fallback
             print("❌ Redis error in UsageService:", str(e))
             print("⚠️ Switching to safe fallback mode")
 
-            return True, 1, limit
+            return True, 1, limit, "fallback"
