@@ -45,6 +45,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     if isinstance(config_overrides, dict):
         app.config.update(config_overrides)
 
+    print("🚀 VYDRA APP STARTING...")
     app.logger.info("Creating VYDRA Flask app")
 
     # ✅ Health route
@@ -55,7 +56,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
             "message": "VYDRA backend is running 🚀"
         }
 
-    # ✅ DEBUG ROUTE (VERY IMPORTANT)
+    # ✅ DEBUG ROUTE (CRITICAL)
     @app.route("/routes", methods=["GET"])
     def list_routes():
         routes = []
@@ -70,28 +71,39 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     # Ensure directories exist
     Path(app.config["DOWNLOAD_DIR"]).mkdir(parents=True, exist_ok=True)
 
-    # Register blueprints
+    # =========================
+    # 🔥 REGISTER BLUEPRINTS WITH HARD DEBUG
+    # =========================
+
+    # DOWNLOAD API
     try:
+        print("👉 محاولة تحميل download_api...")
         from app.api.download_api import download_bp
         app.register_blueprint(download_bp, url_prefix="/api/download")
-        app.logger.info("Registered blueprint: download_bp -> /api/download")
-    except Exception:
-        app.logger.exception("Failed to register download_bp")
+        print("✅ download_bp REGISTERED SUCCESSFULLY")
+    except Exception as e:
+        print("❌ DOWNLOAD BP FAILED:", str(e))
 
+    # JOB API
     try:
+        print("👉 محاولة تحميل job_api...")
         from app.api.job_api import job_bp
         app.register_blueprint(job_bp, url_prefix="/api/job")
-        app.logger.info("Registered blueprint: job_bp -> /api/job")
-    except Exception:
-        app.logger.exception("Failed to register job_bp")
+        print("✅ job_bp REGISTERED SUCCESSFULLY")
+    except Exception as e:
+        print("❌ JOB BP FAILED:", str(e))
 
-    # Attach Celery
+    # =========================
+    # 🔥 CELERY DEBUG
+    # =========================
     try:
         from app.core.celery_app import celery as _celery
         app.celery = _celery
-        app.logger.info("Celery attached to app.")
-    except Exception:
-        app.logger.debug("Celery not attached.")
+        print("✅ Celery attached")
+    except Exception as e:
+        print("⚠️ Celery not attached:", str(e))
+
+    print("🔥 ALL ROUTES LOADED")
 
     return app
 
