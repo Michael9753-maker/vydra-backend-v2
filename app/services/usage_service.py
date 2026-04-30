@@ -10,21 +10,34 @@ class UsageService:
     def check_and_increment_download(user_id: str, is_premium: bool):
         key = get_today_key("download", user_id)
 
-        current = redis_client.get(key)
-        current = int(current) if current else 0
-
         limit = (
             UsageService.DOWNLOAD_LIMIT_PREMIUM
             if is_premium
             else UsageService.DOWNLOAD_LIMIT_FREE
         )
 
-        if current >= limit:
-            return False, current, limit
+        # 🚨 If Redis is not available → allow request (fail-safe mode)
+        if redis_client is None:
+            print("⚠️ Redis unavailable → bypassing usage limits")
+            return True, 1, limit
 
-        pipe = redis_client.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, 86400)  # 24 hours
-        pipe.execute()
+        try:
+            current = redis_client.get(key)
+            current = int(current) if current else 0
 
-        return True, current + 1, limit
+            if current >= limit:
+                return False, current, limit
+
+            pipe = redis_client.pipeline()
+            pipe.incr(key)
+            pipe.expire(key, 86400)  # 24 hours
+            pipe.execute()
+
+            return True, current + 1, limit
+
+        except Exception as e:
+            # 🚨 If Redis crashes during operation → fallback
+            print("❌ Redis error in UsageService:", str(e))
+            print("⚠️ Switching to safe fallback mode")
+
+            return True, 1, limit
