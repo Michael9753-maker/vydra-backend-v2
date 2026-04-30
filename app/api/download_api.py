@@ -108,7 +108,7 @@ def create_download():
     is_premium = False
 
     try:
-        allowed, current, limit = UsageService.check_and_increment_download(
+        allowed, used, limit, source = UsageService.check_and_increment_download(
             user_id=user_id,
             is_premium=is_premium,
         )
@@ -123,8 +123,9 @@ def create_download():
         return jsonify(
             {
                 "error": "daily_limit_reached",
-                "used": current,
+                "used": used,
                 "limit": limit,
+                "usage_source": source
             }
         ), 403
 
@@ -143,8 +144,9 @@ def create_download():
         {
             "job_id": job_id,
             "status": "queued",
-            "used": current,
+            "used": used,
             "limit": limit,
+            "usage_source": source
         }
     ), 202
 
@@ -178,7 +180,9 @@ def get_job_status(job_id):
             {
                 "message": "Task completed successfully",
                 "result": result,
-                "download_url": _build_download_url(result.get("file_path", file_path)) if (result.get("file_path") or file_path) else None,
+                "download_url": _build_download_url(
+                    result.get("file_path", file_path)
+                ) if (result.get("file_path") or file_path) else None,
             }
         )
 
