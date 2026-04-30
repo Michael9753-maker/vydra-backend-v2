@@ -99,7 +99,7 @@ def create_download():
     if not data:
         return jsonify({"error": "invalid_json"}), 400
 
-    user_id = data.get("user_id")
+    user_id = data.get("user_id", "guest_user")
     url = data.get("url")
 
     if not user_id or not url:
