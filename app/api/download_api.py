@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import os
-import uuid
 from pathlib import Path
 from urllib.parse import quote
 
 from flask import Blueprint, request, jsonify, send_file, current_app
-from celery.result import AsyncResult
 
-from app.core.celery_app import celery
 from app.services.usage_service import UsageService
 from app.tasks.download_tasks import process_download_task
 
@@ -107,6 +104,7 @@ def create_download():
 
     is_premium = False
 
+    # ✅ Check usage limits
     try:
         allowed, used, limit, source = UsageService.check_and_increment_download(
             user_id=user_id,
@@ -129,71 +127,33 @@ def create_download():
             }
         ), 403
 
-    job_id = str(uuid.uuid4())
-
+    # 🚀 Run download directly (NO CELERY)
     try:
-        process_download_task.apply_async(
-            args=[url, user_id],
-            task_id=job_id,
-        )
+        result = process_download_task(url, user_id)
     except Exception as exc:
-        current_app.logger.exception("Failed to enqueue download task: %s", exc)
-        return jsonify({"error": "enqueue_failed"}), 500
+        current_app.logger.exception("Download failed: %s", exc)
+        return jsonify({"error": "download_failed"}), 500
+
+    # 📁 Resolve file safely
+    file_path = result.get("file_path", "")
+    resolved_path = _resolve_download_path(file_path)
+
+    if resolved_path is not None:
+        result["file_path"] = str(resolved_path)
+        result["file_name"] = resolved_path.name
 
     return jsonify(
         {
-            "job_id": job_id,
-            "status": "queued",
+            "status": result.get("status", "SUCCESS"),
+            "result": result,
+            "download_url": _build_download_url(
+                result.get("file_path", file_path)
+            ) if (result.get("file_path") or file_path) else None,
             "used": used,
             "limit": limit,
             "usage_source": source
         }
-    ), 202
-
-
-@download_bp.route("/job/<job_id>", methods=["GET"])
-def get_job_status(job_id):
-    task = AsyncResult(job_id, app=celery)
-    status = (task.status or "PENDING").upper()
-
-    response = {
-        "job_id": job_id,
-        "status": status,
-    }
-
-    if status == "PENDING":
-        response["message"] = "Task is waiting in queue..."
-
-    elif status == "STARTED":
-        response["message"] = "Task is currently processing..."
-
-    elif status == "SUCCESS":
-        result = task.result if isinstance(task.result, dict) else {"result": task.result}
-        file_path = result.get("file_path", "")
-        resolved_path = _resolve_download_path(file_path)
-
-        if resolved_path is not None:
-            result["file_path"] = str(resolved_path)
-            result["file_name"] = resolved_path.name
-
-        response.update(
-            {
-                "message": "Task completed successfully",
-                "result": result,
-                "download_url": _build_download_url(
-                    result.get("file_path", file_path)
-                ) if (result.get("file_path") or file_path) else None,
-            }
-        )
-
-    elif status == "FAILURE":
-        response["message"] = "Task failed"
-        response["error"] = str(task.result)
-
-    else:
-        response["message"] = f"Task state: {status}"
-
-    return jsonify(response), 200
+    ), 200
 
 
 @download_bp.route("/file/<path:filename>", methods=["GET"])
@@ -217,6 +177,7 @@ def download_file(filename):
                 download_name=candidate.name,
             )
 
+        # 🔍 fallback search
         for root, _dirs, files in os.walk(DOWNLOAD_DIR):
             if safe_name in files:
                 found = (Path(root) / safe_name).resolve()

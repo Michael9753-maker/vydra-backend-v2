@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 import time
-
-from app.core.celery_app import celery
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +17,6 @@ except Exception as exc:
 def _call_download_engine(url: str, user_id: str) -> Any:
     """
     Compatibility layer.
-
-    This tries a few common signatures so the task does not break while
-    the downloader service is being refactored.
     """
     if process_download is None:
         raise RuntimeError("Download engine is not available")
@@ -46,14 +42,13 @@ def _call_download_engine(url: str, user_id: str) -> Any:
     raise RuntimeError("process_download signature mismatch")
 
 
-@celery.task(
-    bind=True,
-    name="app.tasks.download_tasks.process_download_task",
-    soft_time_limit=60,   # ⚠️ stop politely after 60s
-    time_limit=90         # ⚠️ force kill after 90s
-)
-def process_download_task(self, url: str, user_id: str) -> Dict[str, Any]:
-    job_id = getattr(self.request, "id", None)
+def process_download_task(url: str, user_id: str) -> Dict[str, Any]:
+    """
+    Synchronous version of the Celery task
+    """
+
+    # 🔥 Generate job_id manually (since no Celery)
+    job_id = str(uuid.uuid4())
 
     print(f"🚀 TASK STARTED | job_id={job_id}")
 

@@ -1,36 +1,42 @@
 import os
-from celery import Celery
+
+# 🔒 Toggle Celery ON/OFF
+USE_CELERY = False
 
 
-def make_celery():
-    # ✅ Get Redis URL from environment (Render)
-    redis_url = os.getenv("REDIS_URL")
+if USE_CELERY:
+    from celery import Celery
 
-    if not redis_url:
-        raise ValueError("REDIS_URL is not set in environment variables")
+    def make_celery():
+        redis_url = os.getenv("REDIS_URL")
 
-    # Optional: ensure proper DB index
-    if not redis_url.endswith("/0"):
-        redis_url = redis_url + "/0"
+        if not redis_url:
+            raise ValueError("REDIS_URL is not set in environment variables")
 
-    celery = Celery(
-        "vydra",
-        broker=redis_url,
-        backend=redis_url,
-        include=["app.tasks.download_tasks"],
-    )
+        if not redis_url.endswith("/0"):
+            redis_url = redis_url + "/0"
 
-    celery.conf.update(
-        task_serializer="json",
-        result_serializer="json",
-        accept_content=["json"],
-        timezone="UTC",
-        enable_utc=True,
-        task_track_started=True,
-        task_time_limit=3600,
-    )
+        celery = Celery(
+            "vydra",
+            broker=redis_url,
+            backend=redis_url,
+            include=["app.tasks.download_tasks"],
+        )
 
-    return celery
+        celery.conf.update(
+            task_serializer="json",
+            result_serializer="json",
+            accept_content=["json"],
+            timezone="UTC",
+            enable_utc=True,
+            task_track_started=True,
+            task_time_limit=3600,
+        )
 
+        return celery
 
-celery = make_celery()
+    celery = make_celery()
+
+else:
+    # 🚫 Celery disabled — placeholder so imports don't break
+    celery = None
