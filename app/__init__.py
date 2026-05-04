@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 
 from logger_manager import log_event
@@ -16,7 +16,45 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     load_dotenv()
 
     app = Flask(__name__, static_folder=None)
-    CORS(app, resources={r"/*": {"origins": "*"}})
+
+    # CORS for local frontend + future deployed frontend
+    CORS(
+        app,
+        resources={
+            r"/*": {
+                "origins": [
+                    "http://localhost:5173",
+                    "http://127.0.0.1:5173",
+                    "https://vydra-frontend.onrender.com",
+                    "https://vydra-frontend-v2.onrender.com",
+                ]
+            }
+        },
+        supports_credentials=False,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    )
+
+    @app.after_request
+    def add_cors_headers(response):
+        origin = request.headers.get("Origin")
+        allowed_origins = {
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "https://vydra-frontend.onrender.com",
+            "https://vydra-frontend-v2.onrender.com",
+        }
+
+        if origin in allowed_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        else:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+        response.headers["Access-Control-Allow-Credentials"] = "false"
+        return response
 
     base_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -48,7 +86,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     print("🚀 VYDRA APP STARTING...")
     app.logger.info("Creating VYDRA Flask app")
 
-    # ✅ Health route
     @app.route("/health", methods=["GET"])
     def health():
         return {
@@ -56,7 +93,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
             "message": "VYDRA backend is running 🚀"
         }
 
-    # ✅ DEBUG ROUTE (CRITICAL)
     @app.route("/routes", methods=["GET"])
     def list_routes():
         routes = []
@@ -68,14 +104,8 @@ def create_app(config_overrides: dict | None = None) -> Flask:
             })
         return {"routes": routes}
 
-    # Ensure directories exist
     Path(app.config["DOWNLOAD_DIR"]).mkdir(parents=True, exist_ok=True)
 
-    # =========================
-    # 🔥 REGISTER BLUEPRINTS WITH HARD DEBUG
-    # =========================
-
-    # DOWNLOAD API
     try:
         print("👉 محاولة تحميل download_api...")
         from app.api.download_api import download_bp
@@ -84,7 +114,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     except Exception as e:
         print("❌ DOWNLOAD BP FAILED:", str(e))
 
-    # JOB API
     try:
         print("👉 محاولة تحميل job_api...")
         from app.api.job_api import job_bp
@@ -93,9 +122,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     except Exception as e:
         print("❌ JOB BP FAILED:", str(e))
 
-    # =========================
-    # 🔥 CELERY DEBUG
-    # =========================
     try:
         from app.core.celery_app import celery as _celery
         app.celery = _celery
