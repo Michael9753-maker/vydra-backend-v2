@@ -89,8 +89,10 @@ def _build_download_url(file_path: str) -> str | None:
     return f"/api/download/file/{quote(filename)}"
 
 
-@download_bp.route("/", methods=["POST"])
-def create_download():
+@download_bp.route("/", methods=["POST", "OPTIONS"])
+def download():
+    if request.method == "OPTIONS":
+        return "", 200
     data = request.get_json(silent=True)
 
     if not data:

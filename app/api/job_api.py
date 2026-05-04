@@ -1,11 +1,14 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from app.core.celery_app import celery
 import uuid
 
 job_bp = Blueprint("job", __name__)
 
 
-@job_bp.route("/<job_id>", methods=["GET"])
+@job_bp.route("/<job_id>", methods=["GET", "OPTIONS"])
+def get_job(job_id):
+    if request.method == "OPTIONS":
+        return "", 200
 def get_job_status(job_id):
 
     try:
