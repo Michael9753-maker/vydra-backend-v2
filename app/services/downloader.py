@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, Optional
 from urllib.parse import quote
 
 import yt_dlp
+from yt_dlp.utils import DownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -62,26 +63,26 @@ def _iter_existing(paths: Iterable[Path]) -> Iterable[Path]:
 
 def _build_ydl_opts() -> Dict[str, Any]:
     """
-    ⚡ Optimized yt-dlp config for speed + stability (no Celery mode)
+    ⚡ Optimized yt-dlp config for speed + stability (with cookies support)
     """
-    return {
+    opts = {
         # 📁 Output
         "outtmpl": str(DOWNLOAD_PATH / "%(extractor)s_%(id)s.%(ext)s"),
 
-        # ⚡ FAST FORMAT (no merging when possible)
+        # ⚡ FAST FORMAT
         "format": "mp4/best[ext=mp4]/best",
 
         "merge_output_format": "mp4",
         "noplaylist": True,
 
-        # 🔇 Silent = faster
+        # 🔇 Silent
         "quiet": True,
         "no_warnings": True,
 
         # 🌐 Network tuning
-        "socket_timeout": 10,
-        "retries": 1,
-        "fragment_retries": 1,
+        "socket_timeout": 15,
+        "retries": 2,
+        "fragment_retries": 2,
         "concurrent_fragment_downloads": 4,
 
         # ⚙️ Download behavior
@@ -109,6 +110,20 @@ def _build_ydl_opts() -> Dict[str, Any]:
             }
         },
     }
+
+    # 🍪 COOKIE SUPPORT
+    if COOKIES_FROM_BROWSER:
+        logger.info(f"Using browser cookies: {COOKIES_FROM_BROWSER}")
+        opts["cookiesfrombrowser"] = COOKIES_FROM_BROWSER
+
+    elif COOKIE_FILE and Path(COOKIE_FILE).exists():
+        logger.info(f"Using cookie file: {COOKIE_FILE}")
+        opts["cookiefile"] = COOKIE_FILE
+
+    else:
+        logger.warning("⚠️ No cookies found — YouTube may block requests")
+
+    return opts
 
 
 # 📂 Resolve downloaded file
@@ -193,12 +208,35 @@ def process_download(
                 "file_path": str(absolute_file_path),
             }
 
-    except Exception as e:
-        logger.exception("Download failed")
+    except DownloadError as e:
+        logger.exception("yt-dlp download error")
+
+        error_msg = str(e)
+
+        # 🔥 Detect YouTube bot block
+        if "Sign in to confirm you're not a bot" in error_msg:
+            return {
+                "message": "YouTube is blocking this request (bot detection)",
+                "status": "BLOCKED",
+                "error": "youtube_bot_block",
+                "url": video_url,
+                "user_id": resolved_user_id,
+            }
 
         return {
             "message": "Download failed",
             "status": "FAILURE",
+            "error": error_msg,
+            "url": video_url,
+            "user_id": resolved_user_id,
+        }
+
+    except Exception as e:
+        logger.exception("Unexpected error")
+
+        return {
+            "message": "Unexpected server error",
+            "status": "ERROR",
             "error": str(e),
             "url": video_url,
             "user_id": resolved_user_id,
