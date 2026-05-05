@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Blueprint, request, jsonify, send_file, current_app
+from flask import Blueprint, current_app, jsonify, request, send_file
 
+from app.services.downloader import process_download
 from app.services.usage_service import UsageService
-from app.tasks.download_tasks import process_download_task
 
 download_bp = Blueprint("download", __name__)
 
@@ -21,11 +22,9 @@ def _normalize_path(path_value: str) -> Path | None:
         return None
 
     try:
-        candidate = Path(str(path_value).strip().replace("\\", "/"))
+        return Path(str(path_value).strip().replace("\\", "/"))
     except Exception:
         return None
-
-    return candidate
 
 
 def _is_within_download_dir(path_obj: Path) -> bool:
@@ -89,24 +88,27 @@ def _build_download_url(file_path: str) -> str | None:
     return f"/api/download/file/{quote(filename)}"
 
 
-@download_bp.route("/", methods=["POST", "OPTIONS"])
-def download():
+@download_bp.route("", methods=["POST", "OPTIONS"], strict_slashes=False)
+@download_bp.route("/", methods=["POST", "OPTIONS"], strict_slashes=False)
+def create_download():
     if request.method == "OPTIONS":
         return "", 200
-    data = request.get_json(silent=True)
 
-    if not data:
-        return jsonify({"error": "invalid_json"}), 400
+    started_at = time.time()
+    data = request.get_json(silent=True) or {}
 
-    user_id = data.get("user_id", "guest_user")
-    url = data.get("url")
+    user_id = str(data.get("user_id") or "guest_user").strip() or "guest_user"
+    url = str(data.get("url") or "").strip()
 
-    if not user_id or not url:
-        return jsonify({"error": "missing_fields"}), 400
+    if not url:
+        return jsonify({"error": "missing_fields", "missing": ["url"]}), 400
+
+    meta = data.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
 
     is_premium = False
 
-    # ✅ Check usage limits
     try:
         allowed, used, limit, source = UsageService.check_and_increment_download(
             user_id=user_id,
@@ -114,10 +116,12 @@ def download():
         )
     except Exception as exc:
         current_app.logger.exception("UsageService failed: %s", exc)
-        return jsonify({
-            "error": "usage_check_failed",
-            "debug": str(exc)
-        }), 500
+        return jsonify(
+            {
+                "error": "usage_check_failed",
+                "debug": str(exc),
+            }
+        ), 500
 
     if not allowed:
         return jsonify(
@@ -125,40 +129,58 @@ def download():
                 "error": "daily_limit_reached",
                 "used": used,
                 "limit": limit,
-                "usage_source": source
+                "usage_source": source,
             }
         ), 403
 
-    # 🚀 Run download directly (NO CELERY)
     try:
-        result = process_download_task(url, user_id)
+        result = process_download(url=url, user_id=user_id, **meta)
     except Exception as exc:
         current_app.logger.exception("Download failed: %s", exc)
-        return jsonify({"error": "download_failed"}), 500
+        return jsonify(
+            {
+                "error": "download_failed",
+                "debug": str(exc),
+                "used": used,
+                "limit": limit,
+                "usage_source": source,
+            }
+        ), 500
 
-    # 📁 Resolve file safely
-    file_path = result.get("file_path", "")
+    if not isinstance(result, dict):
+        result = {
+            "status": "SUCCESS",
+            "result": result,
+        }
+
+    status = str(result.get("status") or "SUCCESS").upper()
+    file_path = str(result.get("file_path") or "")
     resolved_path = _resolve_download_path(file_path)
 
     if resolved_path is not None:
         result["file_path"] = str(resolved_path)
         result["file_name"] = resolved_path.name
 
-    return jsonify(
-        {
-            "status": result.get("status", "SUCCESS"),
-            "result": result,
-            "download_url": _build_download_url(
-                result.get("file_path", file_path)
-            ) if (result.get("file_path") or file_path) else None,
-            "used": used,
-            "limit": limit,
-            "usage_source": source
-        }
-    ), 200
+    payload = {
+        "status": status,
+        "result": result,
+        "download_url": _build_download_url(result.get("file_path", file_path))
+        if (result.get("file_path") or file_path)
+        else None,
+        "used": used,
+        "limit": limit,
+        "usage_source": source,
+        "duration_seconds": round(time.time() - started_at, 2),
+    }
+
+    if status in {"FAILURE", "FAILED", "ERROR"}:
+        payload["error"] = result.get("error") or "download_failed"
+        return jsonify(payload), 500
+
+    return jsonify(payload), 200
 
 
-@download_bp.route("/file/<path:filename>", methods=["GET"])
+@download_bp.route("/file/<path:filename>", methods=["GET"], strict_slashes=False)
 def download_file(filename):
     if not filename:
         return jsonify(
@@ -179,7 +201,6 @@ def download_file(filename):
                 download_name=candidate.name,
             )
 
-        # 🔍 fallback search
         for root, _dirs, files in os.walk(DOWNLOAD_DIR):
             if safe_name in files:
                 found = (Path(root) / safe_name).resolve()
