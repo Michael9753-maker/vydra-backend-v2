@@ -90,8 +90,8 @@ def _build_download_url(file_path: str) -> str | None:
     return f"{base}/api/download/file/{quote(filename)}"
 
 
-@download_bp.route("", methods=["POST", "OPTIONS"], strict_slashes=False)
-@download_bp.route("/", methods=["POST", "OPTIONS"], strict_slashes=False)
+@download_bp.route("", methods=["POST"], strict_slashes=False)
+@download_bp.route("/", methods=["POST"], strict_slashes=False)
 def create_download():
     
 
