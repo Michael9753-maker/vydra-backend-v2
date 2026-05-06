@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import quote
 
@@ -99,6 +100,7 @@ def create_download():
 
     user_id = str(data.get("user_id") or "guest_user").strip() or "guest_user"
     url = str(data.get("url") or "").strip()
+    job_id = str(data.get("job_id") or uuid.uuid4()).strip()
 
     if not url:
         return jsonify({"error": "missing_fields", "missing": ["url"]}), 400
@@ -118,6 +120,7 @@ def create_download():
         current_app.logger.exception("UsageService failed: %s", exc)
         return jsonify(
             {
+                "job_id": job_id,
                 "error": "usage_check_failed",
                 "debug": str(exc),
             }
@@ -126,6 +129,8 @@ def create_download():
     if not allowed:
         return jsonify(
             {
+                "job_id": job_id,
+                "status": "BLOCKED",
                 "error": "daily_limit_reached",
                 "used": used,
                 "limit": limit,
@@ -134,11 +139,13 @@ def create_download():
         ), 403
 
     try:
-        result = process_download(url=url, user_id=user_id, **meta)
+        result = process_download(url=url, user_id=user_id, job_id=job_id, **meta)
     except Exception as exc:
         current_app.logger.exception("Download failed: %s", exc)
         return jsonify(
             {
+                "job_id": job_id,
+                "status": "ERROR",
                 "error": "download_failed",
                 "debug": str(exc),
                 "used": used,
@@ -149,6 +156,7 @@ def create_download():
 
     if not isinstance(result, dict):
         result = {
+            "job_id": job_id,
             "status": "SUCCESS",
             "result": result,
         }
@@ -162,7 +170,11 @@ def create_download():
         result["file_name"] = resolved_path.name
 
     payload = {
+        "job_id": job_id,
         "status": status,
+        "message": result.get("message") or (
+            "Download completed successfully" if status == "SUCCESS" else "Download finished"
+        ),
         "result": result,
         "download_url": _build_download_url(result.get("file_path", file_path))
         if (result.get("file_path") or file_path)
@@ -173,10 +185,7 @@ def create_download():
         "duration_seconds": round(time.time() - started_at, 2),
     }
 
-    if status in {"FAILURE", "FAILED", "ERROR"}:
-        payload["error"] = result.get("error") or "download_failed"
-        return jsonify(payload), 500
-
+    # Keep the API consistent: return the job_id even on failures.
     return jsonify(payload), 200
 
 

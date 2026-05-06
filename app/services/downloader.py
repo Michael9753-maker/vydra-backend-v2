@@ -51,6 +51,11 @@ def _pick_user_id(user_id: Optional[str] = None, **kwargs) -> str:
     return str(candidate).strip() if candidate is not None else ""
 
 
+def _pick_job_id(job_id: Optional[str] = None, **kwargs) -> str:
+    candidate = job_id or kwargs.get("job_id") or kwargs.get("task_id")
+    return str(candidate).strip() if candidate is not None else ""
+
+
 # 📂 File helpers
 def _iter_existing(paths: Iterable[Path]) -> Iterable[Path]:
     for p in paths:
@@ -113,11 +118,11 @@ def _build_ydl_opts() -> Dict[str, Any]:
 
     # 🍪 COOKIE SUPPORT
     if COOKIES_FROM_BROWSER:
-        logger.info(f"Using browser cookies: {COOKIES_FROM_BROWSER}")
+        logger.info("Using browser cookies: %s", COOKIES_FROM_BROWSER)
         opts["cookiesfrombrowser"] = COOKIES_FROM_BROWSER
 
     elif COOKIE_FILE and Path(COOKIE_FILE).exists():
-        logger.info(f"Using cookie file: {COOKIE_FILE}")
+        logger.info("Using cookie file: %s", COOKIE_FILE)
         opts["cookiefile"] = COOKIE_FILE
 
     else:
@@ -168,13 +173,14 @@ def _build_download_url(file_path: Path) -> str:
 def process_download(
     url: Optional[str] = None,
     user_id: Optional[str] = None,
+    job_id: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, Any]:
-
     video_url = _pick_url(url, **kwargs)
     resolved_user_id = _pick_user_id(user_id, **kwargs)
+    resolved_job_id = _pick_job_id(job_id, **kwargs)
 
-    logger.info(f"Starting download: {video_url}")
+    logger.info("Starting download: %s | job_id=%s | user_id=%s", video_url, resolved_job_id, resolved_user_id)
 
     try:
         ydl_opts = _build_ydl_opts()
@@ -197,6 +203,7 @@ def process_download(
             absolute_file_path = resolved_path.resolve()
 
             return {
+                "job_id": resolved_job_id,
                 "message": "Download completed successfully",
                 "status": "SUCCESS",
                 "url": video_url,
@@ -216,6 +223,7 @@ def process_download(
         # 🔥 Detect YouTube bot block
         if "Sign in to confirm you're not a bot" in error_msg:
             return {
+                "job_id": resolved_job_id,
                 "message": "YouTube is blocking this request (bot detection)",
                 "status": "BLOCKED",
                 "error": "youtube_bot_block",
@@ -224,6 +232,7 @@ def process_download(
             }
 
         return {
+            "job_id": resolved_job_id,
             "message": "Download failed",
             "status": "FAILURE",
             "error": error_msg,
@@ -235,6 +244,7 @@ def process_download(
         logger.exception("Unexpected error")
 
         return {
+            "job_id": resolved_job_id,
             "message": "Unexpected server error",
             "status": "ERROR",
             "error": str(e),
