@@ -86,7 +86,8 @@ def _build_download_url(file_path: str) -> str | None:
     filename = _extract_filename(file_path)
     if not filename:
         return None
-    return f"/api/download/file/{quote(filename)}"
+    base = request.host_url.rstrip("/")
+    return f"{base}/api/download/file/{quote(filename)}"
 
 
 @download_bp.route("", methods=["POST", "OPTIONS"], strict_slashes=False)
@@ -170,21 +171,27 @@ def create_download():
         result["file_name"] = resolved_path.name
 
     payload = {
-        "job_id": job_id,
-        "status": status,
-        "message": result.get("message") or (
-            "Download completed successfully" if status == "SUCCESS" else "Download finished"
-        ),
-        "result": result,
-        "download_url": _build_download_url(result.get("file_path", file_path))
-        if (result.get("file_path") or file_path)
-        else None,
-        "used": used,
-        "limit": limit,
-        "usage_source": source,
-        "duration_seconds": round(time.time() - started_at, 2),
-    }
+    "success": status == "SUCCESS",
+    "job_id": job_id,
+    "status": status,
 
+    "message": result.get("message") or (
+        "Download completed successfully" if status == "SUCCESS" else "Download finished"
+    ),
+
+    # 🔥 frontend-ready fields
+    "download_url": _build_download_url(result.get("file_path", file_path))
+    if (result.get("file_path") or file_path)
+    else None,
+
+    "file_name": result.get("file_name"),
+
+    # usage
+    "used": used,
+    "limit": limit,
+    "usage_source": source,
+    "duration_seconds": round(time.time() - started_at, 2),
+}
     # Keep the API consistent: return the job_id even on failures.
     return jsonify(payload), 200
 
