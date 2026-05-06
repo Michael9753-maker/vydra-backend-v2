@@ -93,8 +93,7 @@ def _build_download_url(file_path: str) -> str | None:
 @download_bp.route("", methods=["POST", "OPTIONS"], strict_slashes=False)
 @download_bp.route("/", methods=["POST", "OPTIONS"], strict_slashes=False)
 def create_download():
-    if request.method == "OPTIONS":
-        return "", 200
+    
 
     started_at = time.time()
     data = request.get_json(silent=True) or {}
@@ -184,7 +183,7 @@ def create_download():
     if (result.get("file_path") or file_path)
     else None,
 
-    "file_name": result.get("file_name"),
+    "file_name": result.get("file_name") or _extract_filename(file_path),
 
     # usage
     "used": used,
