@@ -27,7 +27,7 @@ POSSIBLE_EXTENSIONS = (
 
 # 🍪 Cookies (optional)
 DEFAULT_COOKIE_FILE = Path(__file__).resolve().parents[2] / "cookies.txt"
-COOKIE_FILE = os.getenv("YTDLP_COOKIEFILE", str(DEFAULT_COOKIE_FILE)).strip()
+COOKIE_FILE = str(Path(os.getenv("YTDLP_COOKIEFILE", DEFAULT_COOKIE_FILE)).resolve())
 COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
 
 
