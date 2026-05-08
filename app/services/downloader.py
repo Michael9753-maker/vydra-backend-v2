@@ -27,8 +27,11 @@ POSSIBLE_EXTENSIONS = (
 
 # 🍪 Cookies (optional)
 DEFAULT_COOKIE_FILE = Path(__file__).resolve().parents[2] / "cookies.txt"
-COOKIE_FILE = str(Path(os.getenv("YTDLP_COOKIEFILE", DEFAULT_COOKIE_FILE)).resolve())
+COOKIE_FILE_ENV = os.getenv("YTDLP_COOKIEFILE", str(DEFAULT_COOKIE_FILE)).strip()
+COOKIE_FILE = Path(COOKIE_FILE_ENV).expanduser()
 COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
+COOKIES_CONTENT = os.getenv("YTDLP_COOKIES_CONTENT", "").strip()
+RUNTIME_COOKIE_FILE = Path(os.getenv("YTDLP_RUNTIME_COOKIEFILE", "/tmp/ytdlp_cookies.txt")).expanduser()
 
 
 # 🔤 Clean filename
@@ -64,6 +67,32 @@ def _iter_existing(paths: Iterable[Path]) -> Iterable[Path]:
                 yield p
         except Exception:
             continue
+
+
+def _prepare_cookie_file() -> Optional[str]:
+    """
+    Returns a valid cookie file path if available.
+    Priority:
+      1) YTDLP_COOKIES_FROM_BROWSER
+      2) Existing YTDLP_COOKIEFILE path
+      3) YTDLP_COOKIES_CONTENT written to a runtime file
+    """
+    if COOKIES_FROM_BROWSER:
+        return None
+
+    if COOKIE_FILE.exists() and COOKIE_FILE.is_file():
+        return str(COOKIE_FILE.resolve())
+
+    if COOKIES_CONTENT:
+        try:
+            RUNTIME_COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            RUNTIME_COOKIE_FILE.write_text(COOKIES_CONTENT, encoding="utf-8")
+            logger.info("Created runtime cookie file: %s", str(RUNTIME_COOKIE_FILE))
+            return str(RUNTIME_COOKIE_FILE.resolve())
+        except Exception as exc:
+            logger.error("Failed to write runtime cookie file: %s", exc)
+
+    return None
 
 
 def _build_ydl_opts() -> Dict[str, Any]:
@@ -120,13 +149,13 @@ def _build_ydl_opts() -> Dict[str, Any]:
     if COOKIES_FROM_BROWSER:
         logger.info("Using browser cookies: %s", COOKIES_FROM_BROWSER)
         opts["cookiesfrombrowser"] = COOKIES_FROM_BROWSER
-
-    elif COOKIE_FILE and Path(COOKIE_FILE).exists():
-        logger.info("Using cookie file: %s", COOKIE_FILE)
-        opts["cookiefile"] = COOKIE_FILE
-
     else:
-        logger.warning("⚠️ No cookies found — YouTube may block requests")
+        cookie_path = _prepare_cookie_file()
+        if cookie_path:
+            logger.info("Using cookie file: %s", cookie_path)
+            opts["cookiefile"] = cookie_path
+        else:
+            logger.warning("⚠️ No cookies found — YouTube may block requests")
 
     return opts
 
@@ -180,7 +209,12 @@ def process_download(
     resolved_user_id = _pick_user_id(user_id, **kwargs)
     resolved_job_id = _pick_job_id(job_id, **kwargs)
 
-    logger.info("Starting download: %s | job_id=%s | user_id=%s", video_url, resolved_job_id, resolved_user_id)
+    logger.info(
+        "Starting download: %s | job_id=%s | user_id=%s",
+        video_url,
+        resolved_job_id,
+        resolved_user_id,
+    )
 
     try:
         ydl_opts = _build_ydl_opts()
