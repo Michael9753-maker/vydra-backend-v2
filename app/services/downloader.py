@@ -119,6 +119,9 @@ def _build_ydl_opts() -> Dict[str, Any]:
         "fragment_retries": 2,
         "concurrent_fragment_downloads": 4,
 
+        # 🔥 ADD IT HERE (CORRECT PLACE)
+        "force_ipv4": True,
+
         # ⚙️ Download behavior
         "continuedl": True,
         "overwrites": True,
@@ -139,10 +142,10 @@ def _build_ydl_opts() -> Dict[str, Any]:
 
         # ⚡ Faster YouTube extraction
         "extractor_args": {
-            "youtube": {
-                "player_client": ["android"],
-            }
-        },
+    "youtube": {
+        "player_client": ["android", "web"],
+    }
+},
     }
 
     # 🍪 COOKIE SUPPORT
