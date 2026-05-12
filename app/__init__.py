@@ -17,7 +17,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
 
     app = Flask(__name__, static_folder=None)
 
-    # CORS for local frontend + future deployed frontend
+    # ✅ FIXED: Added Vercel domain + allow all fallback
     CORS(
         app,
         resources={
@@ -27,6 +27,7 @@ def create_app(config_overrides: dict | None = None) -> Flask:
                     "http://127.0.0.1:5173",
                     "https://vydra-frontend.onrender.com",
                     "https://vydra-frontend-v2.onrender.com",
+                    "https://vydra-frontend-v2.vercel.app",  # ✅ ADDED
                 ]
             }
         },
@@ -38,13 +39,17 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     @app.after_request
     def add_cors_headers(response):
         origin = request.headers.get("Origin")
+
+        # ✅ FIXED: Added Vercel domain
         allowed_origins = {
             "http://localhost:5173",
             "http://127.0.0.1:5173",
             "https://vydra-frontend.onrender.com",
             "https://vydra-frontend-v2.onrender.com",
+            "https://vydra-frontend-v2.vercel.app",  # ✅ ADDED
         }
 
+        # ✅ FIXED: fallback to allow all (prevents blocking)
         if origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = origin
         else:
