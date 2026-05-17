@@ -91,6 +91,10 @@ def create_app(config_overrides: dict | None = None) -> Flask:
     print("🚀 VYDRA APP STARTING...")
     app.logger.info("Creating VYDRA Flask app")
 
+    @app.route("/", methods=["GET"])
+    def home():
+        return "Vydra backend is live ✅"
+
     @app.route("/health", methods=["GET"])
     def health():
         return {
