@@ -33,6 +33,9 @@ COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
 COOKIES_CONTENT = os.getenv("YTDLP_COOKIES_CONTENT", "").strip()
 RUNTIME_COOKIE_FILE = Path(os.getenv("YTDLP_RUNTIME_COOKIEFILE", "/tmp/ytdlp_cookies.txt")).expanduser()
 
+# 🌐 Optional proxy support (leave empty unless you intentionally set one)
+YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
+
 
 # 🔤 Clean filename
 def clean_filename(title: str) -> str:
@@ -97,7 +100,7 @@ def _prepare_cookie_file() -> Optional[str]:
 
 def _build_ydl_opts() -> Dict[str, Any]:
     """
-    ⚡ Optimized yt-dlp config for speed + stability (with cookies support)
+    Production-grade yt-dlp config for stability and higher success rate.
     """
     opts = {
         # 📁 Output
@@ -114,13 +117,16 @@ def _build_ydl_opts() -> Dict[str, Any]:
         "no_warnings": True,
 
         # 🌐 Network tuning
-        "socket_timeout": 15,
-        "retries": 2,
-        "fragment_retries": 2,
+        "socket_timeout": 20,
+        "retries": 3,
+        "fragment_retries": 3,
         "concurrent_fragment_downloads": 4,
 
-        # 🔥 ADD IT HERE (CORRECT PLACE)
+        # 🔥 Prefer IPv4 in hosted environments
         "force_ipv4": True,
+
+        # 🌍 Improve success rate for geo-sensitive extraction
+        "geo_bypass": True,
 
         # ⚙️ Download behavior
         "continuedl": True,
@@ -134,19 +140,26 @@ def _build_ydl_opts() -> Dict[str, Any]:
         # 🌐 Headers
         "http_headers": {
             "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                "Version/16.0 Mobile/15E148 Safari/604.1"
             ),
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.youtube.com/",
         },
 
-        # ⚡ Faster YouTube extraction
+        # ⚡ Better YouTube extraction profile
         "extractor_args": {
-    "youtube": {
-        "player_client": ["android", "web"],
+            "youtube": {
+                "player_client": ["ios", "android", "web"],
+                "player_skip": ["webpage", "configs"],
+            }
+        },
     }
-},
-    }
+
+    if YTDLP_PROXY:
+        opts["proxy"] = YTDLP_PROXY
+        logger.info("Using yt-dlp proxy from environment")
 
     # 🍪 COOKIE SUPPORT
     if COOKIES_FROM_BROWSER:
@@ -198,7 +211,8 @@ def _resolve_downloaded_file(info: Dict[str, Any], prepared_filename: str) -> Op
 
 # 🔗 Build download URL
 def _build_download_url(file_path: Path) -> str:
-    return f"{DOWNLOAD_URL_PREFIX}{quote(file_path.name)}"
+    base_url = os.getenv("BASE_URL", "").rstrip("/")
+    return f"{base_url}{DOWNLOAD_URL_PREFIX}{quote(file_path.name)}"
 
 
 # 🚀 MAIN FUNCTION
