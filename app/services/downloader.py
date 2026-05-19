@@ -25,18 +25,6 @@ POSSIBLE_EXTENSIONS = (
     "opus", "ts",
 )
 
-# 🍪 Cookies (optional)
-DEFAULT_COOKIE_FILE = Path(__file__).resolve().parents[2] / "cookies.txt"
-COOKIE_FILE_ENV = os.getenv("YTDLP_COOKIEFILE", str(DEFAULT_COOKIE_FILE)).strip()
-COOKIE_FILE = Path(COOKIE_FILE_ENV).expanduser()
-COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
-COOKIES_CONTENT = os.getenv("YTDLP_COOKIES_CONTENT", "").strip()
-RUNTIME_COOKIE_FILE = Path(os.getenv("YTDLP_RUNTIME_COOKIEFILE", "/tmp/ytdlp_cookies.txt")).expanduser()
-
-# 🌐 Optional proxy support (leave empty unless you intentionally set one)
-YTDLP_PROXY = os.getenv("YTDLP_PROXY", "").strip()
-
-
 # 🔤 Clean filename
 def clean_filename(title: str) -> str:
     title = re.sub(r'[\\/*?:"<>|#]', "", str(title or ""))
@@ -53,13 +41,11 @@ def _pick_url(url: Optional[str] = None, **kwargs) -> str:
 
 
 def _pick_user_id(user_id: Optional[str] = None, **kwargs) -> str:
-    candidate = user_id or kwargs.get("user_id") or kwargs.get("email") or kwargs.get("user_email")
-    return str(candidate).strip() if candidate is not None else ""
+    return str(user_id or kwargs.get("user_id") or "").strip()
 
 
 def _pick_job_id(job_id: Optional[str] = None, **kwargs) -> str:
-    candidate = job_id or kwargs.get("job_id") or kwargs.get("task_id")
-    return str(candidate).strip() if candidate is not None else ""
+    return str(job_id or kwargs.get("job_id") or "").strip()
 
 
 # 📂 File helpers
@@ -72,141 +58,48 @@ def _iter_existing(paths: Iterable[Path]) -> Iterable[Path]:
             continue
 
 
-def _prepare_cookie_file() -> Optional[str]:
-    """
-    Returns a valid cookie file path if available.
-    Priority:
-      1) YTDLP_COOKIES_FROM_BROWSER
-      2) Existing YTDLP_COOKIEFILE path
-      3) YTDLP_COOKIES_CONTENT written to a runtime file
-    """
-    if COOKIES_FROM_BROWSER:
-        return None
-
-    if COOKIE_FILE.exists() and COOKIE_FILE.is_file():
-        return str(COOKIE_FILE.resolve())
-
-    if COOKIES_CONTENT:
-        try:
-            RUNTIME_COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            RUNTIME_COOKIE_FILE.write_text(COOKIES_CONTENT, encoding="utf-8")
-            logger.info("Created runtime cookie file: %s", str(RUNTIME_COOKIE_FILE))
-            return str(RUNTIME_COOKIE_FILE.resolve())
-        except Exception as exc:
-            logger.error("Failed to write runtime cookie file: %s", exc)
-
-    return None
-
-
+# 🔧 yt-dlp config
 def _build_ydl_opts() -> Dict[str, Any]:
-    """
-    Production-grade yt-dlp config for stability and higher success rate.
-    """
-    opts = {
-        # 📁 Output
+    return {
         "outtmpl": str(DOWNLOAD_PATH / "%(extractor)s_%(id)s.%(ext)s"),
-
-        # ⚡ FAST FORMAT
         "format": "mp4/best[ext=mp4]/best",
-
         "merge_output_format": "mp4",
         "noplaylist": True,
-
-        # 🔇 Silent
         "quiet": True,
         "no_warnings": True,
-
-        # 🌐 Network tuning
         "socket_timeout": 20,
         "retries": 3,
         "fragment_retries": 3,
         "concurrent_fragment_downloads": 4,
-
-        # 🔥 Prefer IPv4 in hosted environments
         "force_ipv4": True,
-
-        # 🌍 Improve success rate for geo-sensitive extraction
         "geo_bypass": True,
-
-        # ⚙️ Download behavior
         "continuedl": True,
         "overwrites": True,
         "ignoreerrors": False,
-
-        # 📂 File safety
         "windowsfilenames": True,
-        "restrictfilenames": False,
-
-        # 🌐 Headers
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
                 "AppleWebKit/605.1.15 (KHTML, like Gecko) "
                 "Version/16.0 Mobile/15E148 Safari/604.1"
             ),
-            "Accept-Language": "en-US,en;q=0.9",
             "Referer": "https://www.youtube.com/",
         },
-
-        # ⚡ Better YouTube extraction profile
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["ios", "android", "web"],
-                "player_skip": ["webpage", "configs"],
-            }
-        },
     }
-
-    if YTDLP_PROXY:
-        opts["proxy"] = YTDLP_PROXY
-        logger.info("Using yt-dlp proxy from environment")
-
-    # 🍪 COOKIE SUPPORT
-    if COOKIES_FROM_BROWSER:
-        logger.info("Using browser cookies: %s", COOKIES_FROM_BROWSER)
-        opts["cookiesfrombrowser"] = COOKIES_FROM_BROWSER
-    else:
-        cookie_path = _prepare_cookie_file()
-        if cookie_path:
-            logger.info("Using cookie file: %s", cookie_path)
-            opts["cookiefile"] = cookie_path
-        else:
-            logger.warning("⚠️ No cookies found — YouTube may block requests")
-
-    return opts
 
 
 # 📂 Resolve downloaded file
 def _resolve_downloaded_file(info: Dict[str, Any], prepared_filename: str) -> Optional[Path]:
-    candidates: list[Path] = []
+    candidates = []
 
-    for key in ("filepath", "_filename"):
-        value = info.get(key)
-        if value:
-            candidates.append(Path(str(value)))
+    if prepared_filename:
+        candidates.append(Path(prepared_filename))
 
-    for item in info.get("requested_downloads") or []:
-        if isinstance(item, dict):
-            for key in ("filepath", "filename"):
-                value = item.get(key)
-                if value:
-                    candidates.append(Path(str(value)))
-
-    prepared_path = Path(prepared_filename)
-    candidates.append(prepared_path)
-
-    stem = prepared_path.with_suffix("")
     for ext in POSSIBLE_EXTENSIONS:
-        candidates.append(stem.with_suffix(f".{ext}"))
+        candidates.append(Path(prepared_filename).with_suffix(f".{ext}"))
 
     existing = list(_iter_existing(candidates))
-    if existing:
-        for candidate in existing:
-            if candidate.suffix.lower() == ".mp4":
-                return candidate
-        return existing[0]
-
-    return None
+    return existing[0] if existing else None
 
 
 # 🔗 Build download URL
@@ -222,16 +115,12 @@ def process_download(
     job_id: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, Any]:
+
     video_url = _pick_url(url, **kwargs)
     resolved_user_id = _pick_user_id(user_id, **kwargs)
     resolved_job_id = _pick_job_id(job_id, **kwargs)
 
-    logger.info(
-        "Starting download: %s | job_id=%s | user_id=%s",
-        video_url,
-        resolved_job_id,
-        resolved_user_id,
-    )
+    logger.info(f"🚀 Download start: {video_url}")
 
     try:
         ydl_opts = _build_ydl_opts()
@@ -242,63 +131,43 @@ def process_download(
             prepared_filename = ydl.prepare_filename(info)
             resolved_path = _resolve_downloaded_file(info, prepared_filename)
 
-            if resolved_path is None:
-                resolved_path = Path(prepared_filename)
-
-            # 🔥 Ensure MP4 if possible
-            if resolved_path.suffix.lower() != ".mp4":
-                mp4_candidate = resolved_path.with_suffix(".mp4")
-                if mp4_candidate.exists():
-                    resolved_path = mp4_candidate
+            if not resolved_path:
+                raise Exception("File was not created")
 
             absolute_file_path = resolved_path.resolve()
 
             return {
-                "job_id": resolved_job_id,
-                "message": "Download completed successfully",
+                "success": True,
                 "status": "SUCCESS",
-                "url": video_url,
+                "message": "Download completed",
+                "download_url": _build_download_url(absolute_file_path),
+                "file_name": absolute_file_path.name,
+                "job_id": resolved_job_id,
                 "user_id": resolved_user_id,
                 "title": info.get("title"),
                 "thumbnail": info.get("thumbnail"),
-                "download_url": _build_download_url(absolute_file_path),
-                "file_name": absolute_file_path.name,
-                "file_path": str(absolute_file_path),
             }
 
     except DownloadError as e:
-        logger.exception("yt-dlp download error")
-
         error_msg = str(e)
-
-        # 🔥 Detect YouTube bot block
-        if "Sign in to confirm you're not a bot" in error_msg:
-            return {
-                "job_id": resolved_job_id,
-                "message": "YouTube is blocking this request (bot detection)",
-                "status": "BLOCKED",
-                "error": "youtube_bot_block",
-                "url": video_url,
-                "user_id": resolved_user_id,
-            }
+        logger.error(f"❌ yt-dlp error: {error_msg}")
 
         return {
-            "job_id": resolved_job_id,
-            "message": "Download failed",
+            "success": False,
             "status": "FAILURE",
-            "error": error_msg,
-            "url": video_url,
-            "user_id": resolved_user_id,
+            "message": error_msg,  # 🔥 REAL ERROR
+            "download_url": None,
+            "job_id": resolved_job_id,
         }
 
     except Exception as e:
-        logger.exception("Unexpected error")
+        error_msg = str(e)
+        logger.error(f"❌ Unexpected error: {error_msg}")
 
         return {
-            "job_id": resolved_job_id,
-            "message": "Unexpected server error",
+            "success": False,
             "status": "ERROR",
-            "error": str(e),
-            "url": video_url,
-            "user_id": resolved_user_id,
+            "message": error_msg,  # 🔥 REAL ERROR
+            "download_url": None,
+            "job_id": resolved_job_id,
         }
