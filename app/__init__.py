@@ -36,31 +36,6 @@ def create_app(config_overrides: dict | None = None) -> Flask:
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     )
 
-    @app.after_request
-    def add_cors_headers(response):
-        origin = request.headers.get("Origin")
-
-        # ✅ FIXED: Added Vercel domain
-        allowed_origins = {
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "https://vydra-frontend.onrender.com",
-            "https://vydra-frontend-v2.onrender.com",
-            "https://vydra-frontend-v2.vercel.app",  # ✅ ADDED
-        }
-
-        # ✅ FIXED: fallback to allow all (prevents blocking)
-        if origin in allowed_origins:
-            response.headers["Access-Control-Allow-Origin"] = origin
-        else:
-            response.headers["Access-Control-Allow-Origin"] = "*"
-
-        response.headers["Vary"] = "Origin"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
-        response.headers["Access-Control-Allow-Credentials"] = "false"
-        return response
-
     base_dir = os.path.abspath(os.path.dirname(__file__))
 
     app.config.setdefault(
