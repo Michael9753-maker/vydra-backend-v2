@@ -25,6 +25,19 @@ POSSIBLE_EXTENSIONS = (
     "opus", "ts",
 )
 
+# 🍪 Cookies (optional)
+DEFAULT_COOKIE_FILE = Path(__file__).resolve().parents[2] / "tiktok_cookies.txt"
+COOKIE_FILE = Path(os.getenv("YTDLP_COOKIEFILE", str(DEFAULT_COOKIE_FILE))).expanduser().resolve()
+COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
+COOKIES_CONTENT = os.getenv("YTDLP_COOKIES_CONTENT", "").strip()
+RUNTIME_COOKIE_FILE = Path(
+    os.getenv("YTDLP_RUNTIME_COOKIEFILE", str(Path(__file__).resolve().parents[2] / "tiktok_cookies.runtime.txt"))
+).expanduser().resolve()
+
+if not COOKIE_FILE.exists():
+    logger.warning("⚠️ Cookie file not found: %s", COOKIE_FILE)
+
+
 # 🔤 Clean filename
 def clean_filename(title: str) -> str:
     title = re.sub(r'[\\/*?:"<>|#]', "", str(title or ""))
@@ -58,15 +71,44 @@ def _iter_existing(paths: Iterable[Path]) -> Iterable[Path]:
             continue
 
 
+def _prepare_cookie_file() -> Optional[str]:
+    """
+    Returns a valid cookie file path if available.
+    Priority:
+      1) YTDLP_COOKIES_FROM_BROWSER
+      2) Existing YTDLP_COOKIEFILE path
+      3) YTDLP_COOKIES_CONTENT written to a runtime file
+    """
+    if COOKIES_FROM_BROWSER:
+        return None
+
+    if COOKIE_FILE.exists() and COOKIE_FILE.is_file():
+        return str(COOKIE_FILE.resolve())
+
+    if COOKIES_CONTENT:
+        try:
+            RUNTIME_COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            RUNTIME_COOKIE_FILE.write_text(COOKIES_CONTENT, encoding="utf-8")
+            logger.info("Created runtime cookie file: %s", str(RUNTIME_COOKIE_FILE))
+            return str(RUNTIME_COOKIE_FILE.resolve())
+        except Exception as exc:
+            logger.error("Failed to write runtime cookie file: %s", exc)
+
+    return None
+
+
 # 🔧 yt-dlp config
 def _build_ydl_opts() -> Dict[str, Any]:
-    return {
+    opts: Dict[str, Any] = {
         "outtmpl": str(DOWNLOAD_PATH / "%(extractor)s_%(id)s.%(ext)s"),
         "format": "mp4/best[ext=mp4]/best",
         "merge_output_format": "mp4",
         "noplaylist": True,
+
+        # Keep logs readable while still letting errors surface in Railway logs
         "quiet": True,
         "no_warnings": True,
+
         "socket_timeout": 20,
         "retries": 3,
         "fragment_retries": 3,
@@ -77,29 +119,64 @@ def _build_ydl_opts() -> Dict[str, Any]:
         "overwrites": True,
         "ignoreerrors": False,
         "windowsfilenames": True,
+        "restrictfilenames": False,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
                 "AppleWebKit/605.1.15 (KHTML, like Gecko) "
                 "Version/16.0 Mobile/15E148 Safari/604.1"
             ),
-            "Referer": "https://www.youtube.com/",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.tiktok.com/",
         },
     }
+
+    if COOKIES_FROM_BROWSER:
+        logger.info("Using browser cookies: %s", COOKIES_FROM_BROWSER)
+        opts["cookiesfrombrowser"] = COOKIES_FROM_BROWSER
+    else:
+        cookie_path = _prepare_cookie_file()
+        if cookie_path:
+            logger.info("Using cookie file: %s", cookie_path)
+            opts["cookiefile"] = cookie_path
+        else:
+            logger.warning("⚠️ No cookies found — YouTube/TikTok may block requests")
+
+    return opts
 
 
 # 📂 Resolve downloaded file
 def _resolve_downloaded_file(info: Dict[str, Any], prepared_filename: str) -> Optional[Path]:
-    candidates = []
+    candidates: list[Path] = []
+
+    for key in ("filepath", "_filename"):
+        value = info.get(key)
+        if value:
+            candidates.append(Path(str(value)))
+
+    for item in info.get("requested_downloads") or []:
+        if isinstance(item, dict):
+            for key in ("filepath", "filename"):
+                value = item.get(key)
+                if value:
+                    candidates.append(Path(str(value)))
 
     if prepared_filename:
-        candidates.append(Path(prepared_filename))
+        prepared_path = Path(prepared_filename)
+        candidates.append(prepared_path)
 
-    for ext in POSSIBLE_EXTENSIONS:
-        candidates.append(Path(prepared_filename).with_suffix(f".{ext}"))
+        stem = prepared_path.with_suffix("")
+        for ext in POSSIBLE_EXTENSIONS:
+            candidates.append(stem.with_suffix(f".{ext}"))
 
     existing = list(_iter_existing(candidates))
-    return existing[0] if existing else None
+    if existing:
+        for candidate in existing:
+            if candidate.suffix.lower() == ".mp4":
+                return candidate
+        return existing[0]
+
+    return None
 
 
 # 🔗 Build download URL
@@ -115,12 +192,11 @@ def process_download(
     job_id: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, Any]:
-
     video_url = _pick_url(url, **kwargs)
     resolved_user_id = _pick_user_id(user_id, **kwargs)
     resolved_job_id = _pick_job_id(job_id, **kwargs)
 
-    logger.info(f"🚀 Download start: {video_url}")
+    logger.info("🚀 Download start: %s", video_url)
 
     try:
         ydl_opts = _build_ydl_opts()
@@ -131,8 +207,8 @@ def process_download(
             prepared_filename = ydl.prepare_filename(info)
             resolved_path = _resolve_downloaded_file(info, prepared_filename)
 
-            if not resolved_path:
-                raise Exception("File was not created")
+            if resolved_path is None:
+                raise Exception("Download finished but file was not found on disk")
 
             absolute_file_path = resolved_path.resolve()
 
@@ -142,6 +218,7 @@ def process_download(
                 "message": "Download completed",
                 "download_url": _build_download_url(absolute_file_path),
                 "file_name": absolute_file_path.name,
+                "file_path": str(absolute_file_path),
                 "job_id": resolved_job_id,
                 "user_id": resolved_user_id,
                 "title": info.get("title"),
@@ -150,24 +227,32 @@ def process_download(
 
     except DownloadError as e:
         error_msg = str(e)
-        logger.error(f"❌ yt-dlp error: {error_msg}")
+        logger.exception("yt-dlp error")
 
         return {
             "success": False,
             "status": "FAILURE",
-            "message": error_msg,  # 🔥 REAL ERROR
+            "message": error_msg,
             "download_url": None,
+            "file_name": "",
+            "file_path": "",
             "job_id": resolved_job_id,
+            "user_id": resolved_user_id,
+            "url": video_url,
         }
 
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"❌ Unexpected error: {error_msg}")
+        logger.exception("Unexpected error")
 
         return {
             "success": False,
             "status": "ERROR",
-            "message": error_msg,  # 🔥 REAL ERROR
+            "message": error_msg,
             "download_url": None,
+            "file_name": "",
+            "file_path": "",
             "job_id": resolved_job_id,
+            "user_id": resolved_user_id,
+            "url": video_url,
         }
