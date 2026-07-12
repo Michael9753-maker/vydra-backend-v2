@@ -1,8 +1,6 @@
 import json
-import redis
 from datetime import datetime
-
-redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+from app.core.redis import redis_client
 
 
 class JobStore:
