@@ -9,3 +9,11 @@ if not REDIS_URL:
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
 print("✅ Connected to Redis:", REDIS_URL)
+
+
+# 👇 ADD THIS PART BELOW
+from datetime import datetime
+
+def get_today_key(prefix="usage"):
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    return f"{prefix}:{today}"
