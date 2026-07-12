@@ -7,10 +7,11 @@ job_bp = Blueprint("job", __name__)
 
 @job_bp.route("/<job_id>", methods=["GET", "OPTIONS"])
 def get_job(job_id):
+    # Handle CORS preflight
     if request.method == "OPTIONS":
         return "", 200
-def get_job_status(job_id):
 
+    # Validate job_id
     try:
         uuid.UUID(job_id)
     except ValueError:

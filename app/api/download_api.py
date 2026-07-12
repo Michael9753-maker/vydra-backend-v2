@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from app.services.downloader import process_download
 from app.services.usage_service import UsageService
 
+
 download_bp = Blueprint("download", __name__)
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -93,8 +94,6 @@ def _build_download_url(file_path: str) -> str | None:
 @download_bp.route("", methods=["POST"], strict_slashes=False)
 @download_bp.route("/", methods=["POST"], strict_slashes=False)
 def create_download():
-    
-
     started_at = time.time()
     data = request.get_json(silent=True) or {}
 
@@ -170,28 +169,33 @@ def create_download():
         result["file_name"] = resolved_path.name
 
     payload = {
-    "success": status == "SUCCESS",
-    "job_id": job_id,
-    "status": status,
+        "success": status == "SUCCESS",
+        "job_id": job_id,
+        "status": status,
+        "message": result.get("message")
+        or ("Download completed successfully" if status == "SUCCESS" else "Download finished"),
+        "download_url": _build_download_url(result.get("file_path", file_path))
+        if (result.get("file_path") or file_path)
+        else None,
+        "file_name": result.get("file_name") or _extract_filename(file_path),
+        "used": used,
+        "limit": limit,
+        "usage_source": source,
+        "duration_seconds": round(time.time() - started_at, 2),
+    }
 
-    "message": result.get("message") or (
-        "Download completed successfully" if status == "SUCCESS" else "Download finished"
-    ),
+    if "debug" in result:
+        payload["debug"] = result.get("debug")
 
-    # 🔥 frontend-ready fields
-    "download_url": _build_download_url(result.get("file_path", file_path))
-    if (result.get("file_path") or file_path)
-    else None,
+    if "cookie_mode" in result:
+        payload["cookie_mode"] = result.get("cookie_mode")
 
-    "file_name": result.get("file_name") or _extract_filename(file_path),
+    if "extractor" in result:
+        payload["extractor"] = result.get("extractor")
 
-    # usage
-    "used": used,
-    "limit": limit,
-    "usage_source": source,
-    "duration_seconds": round(time.time() - started_at, 2),
-}
-    # Keep the API consistent: return the job_id even on failures.
+    if "title" in result:
+        payload["title"] = result.get("title")
+
     return jsonify(payload), 200
 
 

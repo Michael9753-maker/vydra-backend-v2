@@ -1,13 +1,25 @@
-from app.core.redis import redis_client, get_today_key
+from __future__ import annotations
+
+import logging
+import os
+
+from app.core.redis import get_today_key, redis_client
+
+logger = logging.getLogger(__name__)
 
 
 class UsageService:
-
-    DOWNLOAD_LIMIT_FREE = 50
-    DOWNLOAD_LIMIT_PREMIUM = 1000  # effectively unlimited
+    DOWNLOAD_LIMIT_FREE = int(os.getenv("DOWNLOAD_LIMIT_FREE", 25))
+    DOWNLOAD_LIMIT_PREMIUM = int(os.getenv("DOWNLOAD_LIMIT_PREMIUM", 1000))
 
     @staticmethod
     def check_and_increment_download(user_id: str, is_premium: bool):
+        if not user_id:
+            user_id = "guest_user"
+
+        if redis_client is None:
+            raise Exception("Redis is required but not initialized")
+
         key = get_today_key("download", user_id)
 
         limit = (
@@ -16,28 +28,30 @@ class UsageService:
             else UsageService.DOWNLOAD_LIMIT_FREE
         )
 
-        # 🚨 If Redis is not available → allow request (fail-safe mode)
-        if redis_client is None:
-            print("⚠️ Redis unavailable → bypassing usage limits")
-            return True, 1, limit
+        current = 0
 
         try:
-            current = redis_client.get(key)
-            current = int(current) if current else 0
+            raw_current = redis_client.get(key)
+            current = int(raw_current) if raw_current else 0
 
             if current >= limit:
-                return False, current, limit
+                logger.info("📊 Usage limit reached: %s/%s | user=%s", current, limit, user_id)
+                print(f"📊 Usage limit reached: {current}/{limit} | user={user_id}")
+                return False, current, limit, "redis"
 
             pipe = redis_client.pipeline()
             pipe.incr(key)
             pipe.expire(key, 86400)  # 24 hours
             pipe.execute()
 
-            return True, current + 1, limit, "redis"
+            new_usage = current + 1
+
+            logger.info("📊 Usage: %s/%s | user=%s", new_usage, limit, user_id)
+            print(f"📊 Usage: {new_usage}/{limit} | user={user_id}")
+
+            return True, new_usage, limit, "redis"
 
         except Exception as e:
-            # 🚨 If Redis crashes during operation → fallback
-            print("❌ Redis error in UsageService:", str(e))
-            print("⚠️ Switching to safe fallback mode")
-
-            return True, 1, limit, "fallback"
+            logger.exception("❌ Redis failure in UsageService: %s", e)
+            print("❌ Redis failure (blocking request):", str(e))
+            return False, current, limit, "error"
